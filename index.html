@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creo Config Manager</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div>
+            <h2>Creo Configuration Manager</h2>
+        </div>
+        <button class="btn btn-nav" onclick="document.getElementById('excelFile').click()">Upload Excel</button>
+    </div>
+
+    <input type="file" id="excelFile" hidden accept=".xlsx, .xls">
+
+    <div id="configUploadArea" class="upload-area" onclick="document.getElementById('excelFile').click()">
+        <strong>Upload Config Excel</strong>
+        <p style="margin:6px 0 0; font-size:13px; color:#555;">Will be compared against Validation.csv</p>
+    </div>
+
+    <!-- Comparison result (shown only when differences found) -->
+    <div id="comparisonResult" style="display:none;"></div>
+
+    <!-- Editor -->
+    <div id="editorView" style="display:none;">
+        <div id="configList"></div>
+        <div class="footer">
+            <div>
+                <button class="btn btn-nav" id="prevBtn" onclick="changePage(-1)">Previous</button>
+                <span id="pageTracker" style="margin: 0 15px; font-weight: bold;">Page 1</span>
+                <button class="btn btn-nav" id="nextBtn" onclick="changePage(1)">Next</button>
+            </div>
+            <button class="btn btn-download" onclick="exportConfig()">Download config.pro</button>
+        </div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
