@@ -252,7 +252,7 @@ function exportConfig() {
         const symbol = symKey ? row[symKey] : null;
         const val = symbol ? userState[symbol] : null;
 
-        if (symbol && val && String(val).trim() !== '') {
+        if (symbol && val != null && String(val).trim() !== '') {
             content += `${symbol} ${val}\n`;
         }
     });
