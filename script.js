@@ -9,14 +9,11 @@ const perPage = 10;
 
 // ── Auto-load validation.csv ──────────────────────────────────────────────
 
-function parseValidation(buffer) {
-    try {
-        const wb = XLSX.read(buffer, {type: 'array'});
-        const sheetName = wb.SheetNames[0];
-        const sheet = wb.Sheets[sheetName];
-        const rawRows = XLSX.utils.sheet_to_json(sheet, {header: 1});
-        if (rawRows.length > 0) {
-            REF_HEADERS = rawRows[0].map(h => String(h || '').trim()).filter(h => h !== '');
+function parseValidation(csvText) {
+    // Use PapaParse for CSV validation file
+    const results = Papa.parse(csvText, { skipEmptyLines: true });
+    if (results.data && results.data.length > 0) {
+            REF_HEADERS = results.data[0].map(h => String(h || '').trim()).filter(h => h !== '');
             console.log('Validation headers loaded:', REF_HEADERS);
             validationReady = true;
             
@@ -25,65 +22,60 @@ function parseValidation(buffer) {
             if (el && el.innerHTML.includes('Validation file not loaded')) {
                 el.style.display = 'none';
             }
-        }
-    } catch (e) {
-        console.error('Error parsing validation file:', e);
     }
 }
 
 const valPaths = [
-    'config%20files/validation.csv',
-    'Config%20Files/validation.csv', // Fix for GitHub Pages (Case Sensitive)
+    'config_files/validation.csv',
+    'config_files/Validation.csv', // Fix for GitHub Pages (Case Sensitive)
     'validation.csv'
 ];
 
 function tryLoadValidation(index) {
     if (index >= valPaths.length) {
         console.warn('Validation file not found automatically.');
-        // Fallback: Show manual upload UI for local/file:// usage
+        // Error: Validation file missing
         const el = document.getElementById('comparisonResult');
         el.style.display = 'block';
         el.className = 'comparison-result';
         el.innerHTML = `
-            <strong style="color:#856404">&#9888; Validation file not loaded automatically.</strong><br>
+            <strong style="color:#721c24">&#10007; Validation file not loaded.</strong><br>
             <div style="margin-top:5px; font-size:13px;">
-                If you are running locally or the file is missing, please upload <strong>validation.csv</strong> here:
-                <input type="file" id="manualValUpload" accept=".csv, .xlsx" style="margin-top:5px" onchange="loadManualValidation(this)">
+                Required <strong>validation.csv</strong> could not be found.
             </div>`;
         return;
     }
 
     fetch(valPaths[index] + '?t=' + Date.now())
-        .then(r => { if (!r.ok) throw new Error('404'); return r.arrayBuffer(); })
+        .then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
         .then(parseValidation)
         .catch(() => tryLoadValidation(index + 1));
 }
 
-// Helper for the manual input
-window.loadManualValidation = function(input) {
-    const file = input.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => parseValidation(e.target.result);
-    reader.readAsArrayBuffer(file);
-};
-
-tryLoadValidation(0);
+// Check for custom validation from uploadCsv.html
+const storedVal = localStorage.getItem('CREO_REF_HEADERS');
+if (storedVal) {
+    try {
+        REF_HEADERS = JSON.parse(storedVal);
+        console.log('Using custom validation headers from LocalStorage:', REF_HEADERS);
+        validationReady = true;
+    } catch (e) {
+        tryLoadValidation(0);
+    }
+} else {
+    tryLoadValidation(0);
+}
 
 // ── Config Excel upload ───────────────────────────────────────────────────
 document.getElementById('excelFile').addEventListener('change', function(e) {
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-        const dataBuffer = evt.target.result;
-        const wb = XLSX.read(dataBuffer, {type: 'array'});
-        const sheetName = wb.SheetNames[0];
-        const sheet = wb.Sheets[sheetName];
+    const file = e.target.files[0];
+    if (!file) return;
 
-        // 1. Get Raw Data and Headers
-        const rawRows = XLSX.utils.sheet_to_json(sheet, {header: 1});
-        if (rawRows.length === 0) return;
+    const processData = (rows) => {
+        if (!rows || rows.length === 0) return;
 
-        const configHeaders = rawRows[0].map(h => String(h || '').trim());
+        // 1. Get Headers
+        const configHeaders = rows[0].map(h => String(h || '').trim());
         // Normalize headers: remove spaces and lowercase to avoid "Value 1" vs "Value1" issues
         const normalize = h => String(h).replace(/\s+/g, '').toLowerCase();
         const cleanConfigHeaders = configHeaders.map(normalize);
@@ -91,43 +83,59 @@ document.getElementById('excelFile').addEventListener('change', function(e) {
         // 2. Validation Logic
         const el = document.getElementById('comparisonResult');
         
-        // Only validate if template is loaded
-        if (REF_HEADERS) {
-            // Compare headers regardless of case, order, or spacing
-            const refNormalized = REF_HEADERS.map(normalize);
-
-            const missingHeaders = REF_HEADERS.filter(h => 
-                !cleanConfigHeaders.includes(normalize(h))
-            );
-
-            // Strict check: Find headers in upload that are NOT in validation.csv
-            const extraHeaders = configHeaders.filter((h, i) => {
-                const norm = cleanConfigHeaders[i];
-                return norm !== '' && !refNormalized.includes(norm);
-            });
-
-            if (missingHeaders.length > 0 || extraHeaders.length > 0) {
-                el.style.display = 'block';
-                el.className = 'comparison-result';
-                
-                let html = '<strong>&#10007; Validation Failed:</strong> Column mismatch.<br>';
-                if (missingHeaders.length > 0) {
-                    html += `Missing: <div class="header-tags">${missingHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
-                }
-                if (extraHeaders.length > 0) {
-                    html += `Unexpected: <div class="header-tags">${extraHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
-                }
-                el.innerHTML = html;
-                
-                // Reset UI
-                document.getElementById('excelFile').value = '';
-                return;
-            }
+        // Ensure validation file is loaded
+        if (!REF_HEADERS) {
+            el.style.display = 'block';
+            el.className = 'comparison-result';
+            el.innerHTML = '<strong style="color:#721c24">&#10007; Validation Error:</strong> Validation file not loaded. Cannot verify headers.';
+            document.getElementById('excelFile').value = '';
+            return;
         }
 
-        // 3. Process Data Rows (Mapping by Header Name, not index)
-        const jsonData = XLSX.utils.sheet_to_json(sheet);
-        allConfigs = jsonData.filter(row => row.Symbol || row.symbol);
+        // Compare headers regardless of case, order, or spacing
+        const refNormalized = REF_HEADERS.map(normalize);
+
+        const missingHeaders = REF_HEADERS.filter(h => 
+            !cleanConfigHeaders.includes(normalize(h))
+        );
+
+        // Strict check: Find headers in upload that are NOT in validation.csv
+        const extraHeaders = configHeaders.filter((h, i) => {
+            const norm = cleanConfigHeaders[i];
+            return norm !== '' && !refNormalized.includes(norm);
+        });
+
+        if (missingHeaders.length > 0 || extraHeaders.length > 0) {
+            el.style.display = 'block';
+            el.className = 'comparison-result';
+            
+            let html = '<strong>&#10007; Validation Failed:</strong> Column mismatch.<br>';
+            if (missingHeaders.length > 0) {
+                html += `Missing: <div class="header-tags">${missingHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
+            }
+            if (extraHeaders.length > 0) {
+                html += `Unexpected: <div class="header-tags">${extraHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
+            }
+            el.innerHTML = html;
+            
+            // Reset UI
+            document.getElementById('excelFile').value = '';
+            return;
+        }
+
+        // 3. Process Data Rows (Convert array of arrays to array of objects)
+        const headers = rows[0];
+        const jsonData = rows.slice(1).map(row => {
+            let obj = {};
+            headers.forEach((h, i) => { obj[h] = row[i]; });
+            return obj;
+        });
+
+        allConfigs = jsonData.filter(row => {
+            const keys = Object.keys(row);
+            const symKey = keys.find(k => k.toLowerCase() === 'symbol');
+            return symKey && row[symKey];
+        });
 
         userState = {}; // Reset state for new upload
         allConfigs.forEach(row => {
@@ -169,7 +177,16 @@ document.getElementById('excelFile').addEventListener('change', function(e) {
         page = 1;
         render();
     };
-    reader.readAsArrayBuffer(e.target.files[0]);
+
+    // Choose parser based on extension
+    if (file.name.toLowerCase().endsWith('.csv')) {
+        Papa.parse(file, {
+            skipEmptyLines: true,
+            complete: (res) => processData(res.data)
+        });
+    } else {
+        readXlsxFile(file).then(processData).catch(err => console.error(err));
+    }
 });
 
 // ── Render config rows ────────────────────────────────────────────────────

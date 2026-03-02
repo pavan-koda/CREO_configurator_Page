@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Validation CSV</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .upload-container { max-width: 500px; margin: 50px auto; padding: 30px; background: white; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); text-align: center; }
+        .btn-primary { background: var(--primary); color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; margin-top: 15px; font-size: 14px; }
+        .btn-link { background: none; border: none; color: #666; text-decoration: underline; cursor: pointer; font-size: 13px; margin-top: 20px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div class="upload-container">
+        <h2 style="color: var(--primary); margin-top: 0;">Custom Validation</h2>
+        <p style="color: #666; font-size: 14px; margin-bottom: 25px;">
+            Upload a CSV file to replace the default validation rules. The first row will be used as the required headers.
+        </p>
+        
+        <input type="file" id="csvInput" accept=".csv">
+        <br>
+        <button class="btn-primary" onclick="processUpload()">Save & Use Validation</button>
+        <br>
+        <a href="index.html" class="btn-link">Cancel / Back to App</a>
+        <br>
+        <button onclick="clearCustom()" style="color: var(--danger); margin-top: 10px;" class="btn-link">Reset to Default</button>
+    </div>
+
+    <script>
+        function processUpload() {
+            const file = document.getElementById('csvInput').files[0];
+            if (!file) return alert("Please select a CSV file.");
+
+            Papa.parse(file, {
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (!results.data || results.data.length === 0) return alert("File appears empty.");
+                    const headers = results.data[0].map(h => String(h || '').trim()).filter(h => h !== '');
+                    localStorage.setItem('CREO_REF_HEADERS', JSON.stringify(headers));
+                    alert("Validation headers saved!");
+                    window.location.href = 'index.html';
+                }
+            });
+        }
+
+        function clearCustom() {
+            localStorage.removeItem('CREO_REF_HEADERS');
+            alert("Custom validation removed. Reverting to server default.");
+            window.location.href = 'index.html';
+        }
+    </script>
+</body>
+</html>
