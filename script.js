@@ -8,23 +8,9 @@ let page = 1;
 const perPage = 10;
 
 // ── Auto-load validation.csv ──────────────────────────────────────────────
-// Pointing to the root file as provided in your upload list
-const valPath1 = 'config%20files/validation.csv?t=' + Date.now();
-const valPath2 = 'validation.csv?t=' + Date.now();
 
-fetch(valPath1)
-    .then(r => {
-        if (!r.ok) throw new Error('Not found in config files');
-        return r.arrayBuffer();
-    })
-    .catch(() => {
-        // Fallback: try root directory if first path fails (404 or network error)
-        return fetch(valPath2).then(r => {
-            if (!r.ok) throw new Error('Could not find validation.csv in root or config files');
-            return r.arrayBuffer();
-        });
-    })
-    .then(buffer => {
+function parseValidation(buffer) {
+    try {
         const wb = XLSX.read(buffer, {type: 'array'});
         const sheetName = wb.SheetNames[0];
         const sheet = wb.Sheets[sheetName];
@@ -33,11 +19,56 @@ fetch(valPath1)
             REF_HEADERS = rawRows[0].map(h => String(h || '').trim()).filter(h => h !== '');
             console.log('Validation headers loaded:', REF_HEADERS);
             validationReady = true;
+            
+            // Hide manual upload warning if it was visible
+            const el = document.getElementById('comparisonResult');
+            if (el && el.innerHTML.includes('Validation file not loaded')) {
+                el.style.display = 'none';
+            }
         }
-    })
-    .catch(err => { 
-        console.error('Validation load failed. Proceeding without strict validation:', err); 
-    });
+    } catch (e) {
+        console.error('Error parsing validation file:', e);
+    }
+}
+
+const valPaths = [
+    'config%20files/validation.csv',
+    'Config%20Files/validation.csv', // Fix for GitHub Pages (Case Sensitive)
+    'validation.csv'
+];
+
+function tryLoadValidation(index) {
+    if (index >= valPaths.length) {
+        console.warn('Validation file not found automatically.');
+        // Fallback: Show manual upload UI for local/file:// usage
+        const el = document.getElementById('comparisonResult');
+        el.style.display = 'block';
+        el.className = 'comparison-result';
+        el.innerHTML = `
+            <strong style="color:#856404">&#9888; Validation file not loaded automatically.</strong><br>
+            <div style="margin-top:5px; font-size:13px;">
+                If you are running locally or the file is missing, please upload <strong>validation.csv</strong> here:
+                <input type="file" id="manualValUpload" accept=".csv, .xlsx" style="margin-top:5px" onchange="loadManualValidation(this)">
+            </div>`;
+        return;
+    }
+
+    fetch(valPaths[index] + '?t=' + Date.now())
+        .then(r => { if (!r.ok) throw new Error('404'); return r.arrayBuffer(); })
+        .then(parseValidation)
+        .catch(() => tryLoadValidation(index + 1));
+}
+
+// Helper for the manual input
+window.loadManualValidation = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => parseValidation(e.target.result);
+    reader.readAsArrayBuffer(file);
+};
+
+tryLoadValidation(0);
 
 // ── Config Excel upload ───────────────────────────────────────────────────
 document.getElementById('excelFile').addEventListener('change', function(e) {
