@@ -60,44 +60,38 @@ document.getElementById('excelFile').addEventListener('change', function(e) {
         // 2. Validation Logic
         const el = document.getElementById('comparisonResult');
         
-        // STRICT CHECK: Block if validation template is not loaded
-        if (REF_HEADERS === null) {
-            el.style.display = 'block';
-            el.className = 'comparison-result';
-            el.innerHTML = '<strong style="color:#dc3545">&#9888; Error:</strong> Validation template not loaded. Cannot verify file.';
-            document.getElementById('excelFile').value = '';
-            return;
-        }
+        // Only validate if template is loaded
+        if (REF_HEADERS) {
+            // Compare headers regardless of case, order, or spacing
+            const refNormalized = REF_HEADERS.map(normalize);
 
-        // Compare headers regardless of case, order, or spacing
-        const refNormalized = REF_HEADERS.map(normalize);
+            const missingHeaders = REF_HEADERS.filter(h => 
+                !cleanConfigHeaders.includes(normalize(h))
+            );
 
-        const missingHeaders = REF_HEADERS.filter(h => 
-            !cleanConfigHeaders.includes(normalize(h))
-        );
+            // Strict check: Find headers in upload that are NOT in validation.csv
+            const extraHeaders = configHeaders.filter((h, i) => {
+                const norm = cleanConfigHeaders[i];
+                return norm !== '' && !refNormalized.includes(norm);
+            });
 
-        // Strict check: Find headers in upload that are NOT in validation.csv
-        const extraHeaders = configHeaders.filter((h, i) => {
-            const norm = cleanConfigHeaders[i];
-            return norm !== '' && !refNormalized.includes(norm);
-        });
-
-        if (missingHeaders.length > 0 || extraHeaders.length > 0) {
-            el.style.display = 'block';
-            el.className = 'comparison-result';
-            
-            let html = '<strong>&#10007; Validation Failed:</strong> Column mismatch.<br>';
-            if (missingHeaders.length > 0) {
-                html += `Missing: <div class="header-tags">${missingHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
+            if (missingHeaders.length > 0 || extraHeaders.length > 0) {
+                el.style.display = 'block';
+                el.className = 'comparison-result';
+                
+                let html = '<strong>&#10007; Validation Failed:</strong> Column mismatch.<br>';
+                if (missingHeaders.length > 0) {
+                    html += `Missing: <div class="header-tags">${missingHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
+                }
+                if (extraHeaders.length > 0) {
+                    html += `Unexpected: <div class="header-tags">${extraHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
+                }
+                el.innerHTML = html;
+                
+                // Reset UI
+                document.getElementById('excelFile').value = '';
+                return;
             }
-            if (extraHeaders.length > 0) {
-                html += `Unexpected: <div class="header-tags">${extraHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
-            }
-            el.innerHTML = html;
-            
-            // Reset UI
-            document.getElementById('excelFile').value = '';
-            return;
         }
 
         // 3. Process Data Rows (Mapping by Header Name, not index)
