@@ -44,3 +44,4 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid #ccc;
 .tag { padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid var(--primary); background: white; color: var(--primary); transition: 0.1s; }
 .tag.active { background: var(--primary); color: white; font-weight: bold; }
 .tag:hover { background: #e1f0ff; }
+

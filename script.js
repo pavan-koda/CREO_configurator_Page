@@ -1,192 +1,68 @@
-// Populated from validation.csv on load; null means CSV not loaded — validation is skipped
-let REF_HEADERS     = null;
-let validationReady = false;
-
 let allConfigs = [];
 let userState  = {};
 let page = 1;
 const perPage = 10;
-
-// ── Auto-load validation.csv ──────────────────────────────────────────────
-
-function parseValidation(csvText) {
-    // Use PapaParse for CSV validation file
-    const results = Papa.parse(csvText, { skipEmptyLines: true });
-    if (results.data && results.data.length > 0) {
-            REF_HEADERS = results.data[0].map(h => String(h || '').trim()).filter(h => h !== '');
-            console.log('Validation headers loaded:', REF_HEADERS);
-            validationReady = true;
-            
-            // Hide manual upload warning if it was visible
-            const el = document.getElementById('comparisonResult');
-            if (el && el.innerHTML.includes('Validation file not loaded')) {
-                el.style.display = 'none';
-            }
-    }
-}
-
-const valPaths = [
-    'config_files/validation.csv',
-    'config_files/Validation.csv', // Fix for GitHub Pages (Case Sensitive)
-    'validation.csv'
-];
-
-function tryLoadValidation(index) {
-    if (index >= valPaths.length) {
-        console.warn('Validation file not found automatically.');
-        // Error: Validation file missing
-        const el = document.getElementById('comparisonResult');
-        el.style.display = 'block';
-        el.className = 'comparison-result';
-        el.innerHTML = `
-            <strong style="color:#721c24">&#10007; Validation file not loaded.</strong><br>
-            <div style="margin-top:5px; font-size:13px;">
-                Required <strong>validation.csv</strong> could not be found.
-            </div>`;
-        return;
-    }
-
-    fetch(valPaths[index] + '?t=' + Date.now())
-        .then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
-        .then(parseValidation)
-        .catch(() => tryLoadValidation(index + 1));
-}
-
-// Check for custom validation from uploadCsv.html
-const storedVal = localStorage.getItem('CREO_REF_HEADERS');
-if (storedVal) {
-    try {
-        REF_HEADERS = JSON.parse(storedVal);
-        console.log('Using custom validation headers from LocalStorage:', REF_HEADERS);
-        validationReady = true;
-    } catch (e) {
-        tryLoadValidation(0);
-    }
-} else {
-    tryLoadValidation(0);
-}
-
 // ── Config Excel upload ───────────────────────────────────────────────────
 document.getElementById('excelFile').addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    const processData = (rows) => {
-        if (!rows || rows.length === 0) return;
+    const processData = (configRows) => {
+        if (!configRows || configRows.length === 0) return;
 
-        // 1. Get Headers
-        const configHeaders = rows[0].map(h => String(h || '').trim());
-        // Normalize headers: remove spaces and lowercase to avoid "Value 1" vs "Value1" issues
-        const normalize = h => String(h).replace(/\s+/g, '').toLowerCase();
-        const cleanConfigHeaders = configHeaders.map(normalize);
+    const el = document.getElementById('comparisonResult');
 
-        // 2. Validation Logic
-        const el = document.getElementById('comparisonResult');
-        
-        // Ensure validation file is loaded
-        if (!REF_HEADERS) {
-            el.style.display = 'block';
-            el.className = 'comparison-result';
-            el.innerHTML = '<strong style="color:#721c24">&#10007; Validation Error:</strong> Validation file not loaded. Cannot verify headers.';
-            document.getElementById('excelFile').value = '';
-            return;
-        }
-
-        // Compare headers regardless of case, order, or spacing
-        const refNormalized = REF_HEADERS.map(normalize);
-
-        const missingHeaders = REF_HEADERS.filter(h => 
-            !cleanConfigHeaders.includes(normalize(h))
-        );
-
-        // Strict check: Find headers in upload that are NOT in validation.csv
-        const extraHeaders = configHeaders.filter((h, i) => {
-            const norm = cleanConfigHeaders[i];
-            return norm !== '' && !refNormalized.includes(norm);
-        });
-
-        if (missingHeaders.length > 0 || extraHeaders.length > 0) {
-            el.style.display = 'block';
-            el.className = 'comparison-result';
-            
-            let html = '<strong>&#10007; Validation Failed:</strong> Column mismatch.<br>';
-            if (missingHeaders.length > 0) {
-                html += `Missing: <div class="header-tags">${missingHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
-            }
-            if (extraHeaders.length > 0) {
-                html += `Unexpected: <div class="header-tags">${extraHeaders.map(h => `<span class="header-tag miss">${h}</span>`).join('')}</div>`;
-            }
-            el.innerHTML = html;
-            
-            // Reset UI
-            document.getElementById('excelFile').value = '';
-            return;
-        }
-
-        // 3. Process Data Rows (Convert array of arrays to array of objects)
-        const headers = rows[0];
-        const jsonData = rows.slice(1).map(row => {
+        // ── Build data ──
+        const headers  = configRows[0];
+        const jsonData = configRows.slice(1).map(row => {
             let obj = {};
             headers.forEach((h, i) => { obj[h] = row[i]; });
             return obj;
         });
 
         allConfigs = jsonData.filter(row => {
-            const keys = Object.keys(row);
-            const symKey = keys.find(k => k.toLowerCase() === 'symbol');
+            const symKey = Object.keys(row).find(k => k.toLowerCase() === 'symbol');
             return symKey && row[symKey];
         });
 
-        userState = {}; // Reset state for new upload
+        userState = {};
         allConfigs.forEach(row => {
-            // Normalize key access to handle case sensitivity in column names
-            const getVal = (key) => {
-                const actualKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
-                return actualKey ? row[actualKey] : null;
+            const getVal = key => {
+                const k = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
+                return k ? row[k] : null;
             };
-
             const symbol = getVal('Symbol');
-            const type = String(getVal('type') || '').toLowerCase();
+            const type   = String(getVal('type') || '').toLowerCase();
 
             if (type.includes('multi')) {
                 const allVals = Object.keys(row)
                     .filter(k => /^Value\s*\d+$/i.test(k))
-                    .sort((a,b) => parseInt(a.replace(/\D/g,'')) - parseInt(b.replace(/\D/g,'')))
+                    .sort((a, b) => parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, '')))
                     .map(k => row[k])
                     .filter(v => v && String(v).trim() !== '')
                     .map(v => String(v).trim());
-                
                 userState[symbol] = [...new Set(allVals)].join(', ');
             } else {
                 userState[symbol] = String(getVal('Value1') || '');
             }
         });
 
-        // 4. Success UI Update
+        // ── Success UI ──
         el.style.display = 'none';
         const area = document.getElementById('configUploadArea');
         area.className = 'upload-area done';
         area.innerHTML = `
             <strong style="color:var(--success)">&#10003; File Validated & Loaded</strong>
-            <p style="margin:6px 0 0; font-size:13px; color:#555;">
-                ${allConfigs.length} symbols found</p>`;
-
+            <p style="margin:6px 0 0; font-size:13px; color:#555;">${allConfigs.length} symbols found</p>`;
         setTimeout(() => { area.style.display = 'none'; }, 3000);
 
+        document.getElementById('excelFile').value = '';
         document.getElementById('editorView').style.display = 'block';
         page = 1;
         render();
     };
 
-    // Choose parser based on extension
-    if (file.name.toLowerCase().endsWith('.csv')) {
-        Papa.parse(file, {
-            skipEmptyLines: true,
-            complete: (res) => processData(res.data)
-        });
-    } else {
-        readXlsxFile(file).then(processData).catch(err => console.error(err));
-    }
+    readXlsxFile(file).then(configRows => processData(configRows));
 });
 
 // ── Render config rows ────────────────────────────────────────────────────
@@ -194,21 +70,20 @@ function render() {
     const container = document.getElementById('configList');
     if (!container) return;
     container.innerHTML = '';
-    
-    const start = (page - 1) * perPage;
+
+    const start     = (page - 1) * perPage;
     const pageItems = allConfigs.slice(start, start + perPage);
 
     pageItems.forEach(row => {
-        // Case-insensitive helper
-        const getVal = (key) => {
-            const actualKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
-            return actualKey ? row[actualKey] : '';
+        const getVal = key => {
+            const k = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
+            return k ? row[k] : '';
         };
 
-        const symbol = getVal('Symbol');
+        const symbol   = getVal('Symbol');
         const question = getVal('Question') || 'Option';
-        const type = String(getVal('type') || '').toLowerCase();
-        
+        const type     = String(getVal('type') || '').toLowerCase();
+
         const div = document.createElement('div');
         div.className = 'config-row';
         let inputHtml = '';
@@ -216,21 +91,16 @@ function render() {
         if (type.includes('multi')) {
             const available = Object.keys(row)
                 .filter(k => /^Value\s*\d+$/i.test(k))
-                .sort((a,b) => parseInt(a.replace(/\D/g,'')) - parseInt(b.replace(/\D/g,'')))
+                .sort((a, b) => parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, '')))
                 .map(k => row[k])
                 .filter(v => v && String(v).trim() !== '')
                 .map(v => String(v).trim());
-
-            const selections = (userState[symbol] || '').split(',').map(s => s.trim()).filter(s => s !== '');
-            
+            const selections = (userState[symbol] || '').split(',').map(s => s.trim()).filter(s => s);
             inputHtml = `
                 <div>
                     <input type="text" id="input-${symbol}" value="${userState[symbol]}" oninput="updateState('${symbol}', this.value)">
                     <div class="tag-container">
-                        ${available.map(v => {
-                            const active = selections.includes(v);
-                            return `<span class="tag ${active ? 'active' : ''}" onclick="toggleTag('${symbol}', '${v}', this)">${v}</span>`;
-                        }).join('')}
+                        ${available.map(v => `<span class="tag ${selections.includes(v) ? 'active' : ''}" onclick="toggleTag('${symbol}', '${v}', this)">${v}</span>`).join('')}
                     </div>
                 </div>`;
         } else if (type === 'drop' || type === 'toggle') {
@@ -239,7 +109,6 @@ function render() {
                 .map(k => row[k])
                 .filter(v => v);
             const finalOpts = opts.length > 0 ? opts : ['yes', 'no'];
-            
             inputHtml = `<select onchange="updateState('${symbol}', this.value)">
                 ${finalOpts.map(o => `<option value="${o}" ${userState[symbol] == o ? 'selected' : ''}>${o}</option>`).join('')}
             </select>`;
@@ -252,12 +121,10 @@ function render() {
                 <strong>${question}</strong>
                 <small>Symbol: ${symbol}</small>
             </div>
-            <div>${inputHtml}</div>
-        `;
+            <div>${inputHtml}</div>`;
         container.appendChild(div);
     });
 
-    // Pagination update
     const totalPages = Math.ceil(allConfigs.length / perPage);
     document.getElementById('pageTracker').innerText = `Page ${page} of ${totalPages || 1}`;
     document.getElementById('prevBtn').disabled = page === 1;
@@ -266,17 +133,9 @@ function render() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function toggleTag(symbol, value, element) {
-    const currentVal = userState[symbol] || '';
-    const selectionSet = new Set(currentVal.split(',').map(p => p.trim()).filter(p => p !== ''));
-    
-    if (selectionSet.has(value)) {
-        selectionSet.delete(value);
-        element.classList.remove('active');
-    } else {
-        selectionSet.add(value);
-        element.classList.add('active');
-    }
-    
+    const selectionSet = new Set((userState[symbol] || '').split(',').map(p => p.trim()).filter(p => p));
+    if (selectionSet.has(value)) { selectionSet.delete(value); element.classList.remove('active'); }
+    else                         { selectionSet.add(value);    element.classList.add('active'); }
     const newValue = Array.from(selectionSet).join(', ');
     userState[symbol] = newValue;
     const input = document.getElementById(`input-${symbol}`);
@@ -285,26 +144,17 @@ function toggleTag(symbol, value, element) {
 
 function updateState(key, val) { userState[key] = val; }
 
-function changePage(step) { 
-    page += step; 
-    render(); 
-    window.scrollTo(0, 0); 
-}
+function changePage(step) { page += step; render(); window.scrollTo(0, 0); }
 
 function exportConfig() {
     let content = "! Generated config.pro\n";
-
-    // Iterate allConfigs to ensure all pages are included and original order is preserved
     allConfigs.forEach(row => {
         const symKey = Object.keys(row).find(k => k.toLowerCase() === 'symbol');
         const symbol = symKey ? row[symKey] : null;
-        const val = symbol ? userState[symbol] : null;
-
-        if (symbol && val != null && String(val).trim() !== '') {
-            content += `${symbol} ${val}\n`;
-        }
+        const val    = symbol ? userState[symbol] : null;
+        if (symbol && val != null && String(val).trim() !== '') content += `${symbol} ${val}\n`;
     });
-    const blob = new Blob([content], {type: 'text/plain'});
+    const blob = new Blob([content], { type: 'text/plain' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'config.pro';
